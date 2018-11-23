@@ -1,3 +1,4 @@
+{-# language BangPatterns #-}
 {-# language FlexibleContexts #-}
 {-# language FlexibleInstances, UndecidableInstances #-}
 {-# language FunctionalDependencies, MultiParamTypeClasses #-}
@@ -34,30 +35,80 @@ shrinkR1 (Record1 r) = Record1 $ Vector.unsafeTail r
 trivialR1 :: a -> Record1 '[] b
 trivialR1 _ = emptyR1
 
-instance Functor (Record1 '[]) where
+class MapRecord1 (fs :: [k -> *]) where
+  mapRecord1 :: Proxy# fs -> (a -> b) -> Int -> Any -> Any
+
+instance MapRecord1 '[] where
+  {-# inline mapRecord1 #-}
+  mapRecord1 _ _ _ = undefined
+
+instance (Functor f, MapRecord1 fs) => MapRecord1 (f ': fs) where
+  {-# inline mapRecord1 #-}
+  mapRecord1 _ f !0 = unsafeCoerce (fmap @f f)
+  mapRecord1 _ f !n = mapRecord1 (proxy# :: Proxy# fs) f (n-1)
+
+instance MapRecord1 fs => Functor (Record1 fs) where
   {-# inline fmap #-}
-  fmap _ = trivialR1
+  fmap f (Record1 r) =
+    Record1 $ Vector.imap (mapRecord1 (proxy# :: Proxy# fs) f) r
 
-instance (Functor f, Functor (Record1 fs)) => Functor (Record1 (f ': fs)) where
-  {-# inline fmap #-}
-  fmap f = introR1 (fmap f . headR1) (fmap f . shrinkR1)
+class FoldRecord1 (fs :: [k -> *]) where
+  foldrRecord1 :: Proxy# fs -> (a -> b -> b) -> Int -> Any -> b -> b
 
-instance Foldable (Record1 '[]) where
-  {-# inline foldMap #-}
-  foldMap _ = mempty
+instance FoldRecord1 '[] where
+  {-# inline foldrRecord1 #-}
+  foldrRecord1 _ _ _ = undefined
 
-instance (Foldable f, Foldable (Record1 fs)) => Foldable (Record1 (f ': fs)) where
-  {-# inline foldMap #-}
-  foldMap f r = foldMap f (headR1 r) <> foldMap f (shrinkR1 r)
+instance (Foldable f, FoldRecord1 fs) => FoldRecord1 (f ': fs) where
+  {-# inline foldrRecord1 #-}
+  foldrRecord1 _ f !0 = flip (foldr @f f) . unsafeCoerce
+  foldrRecord1 _ f !n = foldrRecord1 (proxy# :: Proxy# fs) f (n-1)
 
-instance Traversable (Record1 '[]) where
+instance FoldRecord1 fs => Foldable (Record1 fs) where
+  {-# inline foldr #-}
+  foldr f z (Record1 r) =
+    Vector.ifoldr (foldrRecord1 (proxy# :: Proxy# fs) f) z r
+
+{-# inline itraverseVector #-}
+itraverseVector
+  :: Applicative f
+  => (Int -> a -> f b)
+  -> Vector a
+  -> f (Vector b)
+itraverseVector f = fmap Vector.fromList . itraverseList f . Vector.toList
+  where
+    {-# inline itraverseList #-}
+    itraverseList
+      :: Applicative f
+      => (Int -> a -> f b)
+      -> [a]
+      -> f [b]
+    itraverseList f = go 0
+      where
+        go !_ [] = pure []
+        go !n (x:xs) = (:) <$> f n x <*> go (n+1) xs
+
+class (MapRecord1 fs, FoldRecord1 fs) => TraverseRecord1 (fs :: [k -> *]) where
+  traverseRecord1
+    :: Applicative f
+    => Proxy# fs
+    -> (a -> f b)
+    -> Int -> Any -> f Any
+
+instance TraverseRecord1 '[] where
+  {-# inline traverseRecord1 #-}
+  traverseRecord1 _ _ _ = undefined
+
+instance (Traversable f, TraverseRecord1 fs) => TraverseRecord1 (f ': fs) where
+  {-# inline traverseRecord1 #-}
+  traverseRecord1 _ f !0 = unsafeCoerce (traverse @f f)
+  traverseRecord1 _ f !n = traverseRecord1 (proxy# :: Proxy# fs) f (n-1)
+
+instance (TraverseRecord1 fs) => Traversable (Record1 fs) where
   {-# inline traverse #-}
-  traverse _ = pure . trivialR1
-
-instance
-  (Traversable f, Traversable (Record1 fs)) => Traversable (Record1 (f ': fs)) where
-  {-# inline traverse #-}
-  traverse f = introR1M (traverse f . headR1) (traverse f . shrinkR1)
+  traverse f (Record1 r) =
+    Record1 <$>
+    itraverseVector (traverseRecord1 (proxy# :: Proxy# fs) f) r
 
 instance Show1 (Record1 vs) => ShowF (Record1 vs) where
   {-# inline showsPrecF #-}
@@ -99,8 +150,8 @@ introR1
   -> r -> Record1 (a ': as) x
 introR1 f g = runIdentity . introR1M (Identity . f) (Identity . g)
 
-class Field1 as g | as -> g where
-  offset1 :: Proxy# as -> Proxy# g -> Int
+class Field1 (fs :: [k -> *]) (g :: k -> *) | fs -> g where
+  offset1 :: Proxy# fs -> Proxy# g -> Int
 
 instance {-# overlapping #-} Field1 (f ': fs) f where
   {-# inline offset1 #-}
@@ -113,7 +164,7 @@ instance {-# overlappable #-} Field1 fs g => Field1 (f ': fs) g where
 
 {-# inline headR1 #-}
 headR1 :: Record1 (f ': fs) a -> f a
-headR1 = unsafeCoerce . Vector.unsafeHead . unRecord1 
+headR1 = unsafeCoerce . Vector.unsafeHead . unRecord1
 
 {-# inline get1 #-}
 get1 :: forall g fs a. Field1 fs g => Record1 fs a -> g a
