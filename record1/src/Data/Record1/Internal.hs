@@ -40,7 +40,7 @@ instance Functor (Record1 '[]) where
 
 instance (Functor f, Functor (Record1 fs)) => Functor (Record1 (f ': fs)) where
   {-# inline fmap #-}
-  fmap f = introR1 (fmap f . head1) (fmap f . shrinkR1)
+  fmap f = introR1 (fmap f . headR1) (fmap f . shrinkR1)
 
 instance Foldable (Record1 '[]) where
   {-# inline foldMap #-}
@@ -48,7 +48,7 @@ instance Foldable (Record1 '[]) where
 
 instance (Foldable f, Foldable (Record1 fs)) => Foldable (Record1 (f ': fs)) where
   {-# inline foldMap #-}
-  foldMap f r = foldMap f (head1 r) <> foldMap f (shrinkR1 r)
+  foldMap f r = foldMap f (headR1 r) <> foldMap f (shrinkR1 r)
 
 instance Traversable (Record1 '[]) where
   {-# inline traverse #-}
@@ -57,7 +57,7 @@ instance Traversable (Record1 '[]) where
 instance
   (Traversable f, Traversable (Record1 fs)) => Traversable (Record1 (f ': fs)) where
   {-# inline traverse #-}
-  traverse f = introR1M (traverse f . head1) (traverse f . shrinkR1)
+  traverse f = introR1M (traverse f . headR1) (traverse f . shrinkR1)
 
 instance Show1 (Record1 vs) => ShowF (Record1 vs) where
   {-# inline showsPrecF #-}
@@ -72,7 +72,7 @@ instance (Show1 f, Show1 (Record1 fs)) => Show1 (Record1 (f ': fs)) where
   liftShowsPrec a b c r =
     showParen (c > 10) $
     showString "RCons " .
-    liftShowsPrec a b 11 (head1 r) .
+    liftShowsPrec a b 11 (headR1 r) .
     showString " " .
     liftShowsPrec a b 11 (shrinkR1 r)
 
@@ -111,9 +111,9 @@ instance {-# overlappable #-} Field1 fs g => Field1 (f ': fs) g where
   offset1 :: forall f fs g. Field1 fs g => Proxy# (f ': fs) -> Proxy# g -> Int
   offset1 _ g = 1 + offset1 (proxy# :: Proxy# fs) g
 
-{-# inline head1 #-}
-head1 :: Record1 (f ': fs) a -> f a
-head1 = unsafeCoerce . Vector.unsafeHead . unRecord1 
+{-# inline headR1 #-}
+headR1 :: Record1 (f ': fs) a -> f a
+headR1 = unsafeCoerce . Vector.unsafeHead . unRecord1 
 
 {-# inline get1 #-}
 get1 :: forall g fs a. Field1 fs g => Record1 fs a -> g a
