@@ -3,7 +3,7 @@
 
 name:                record1-lens
 version:             0.1.0.0
--- synopsis:
+synopsis:            Extensible record for unary type constructors
 -- description:
 license:             BSD3
 license-file:        LICENSE
